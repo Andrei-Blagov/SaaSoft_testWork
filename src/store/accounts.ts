@@ -16,8 +16,6 @@ export interface AccountRecord {
 
 const STORAGE_KEY = 'account-records';
 
-const createId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
 export const useAccountStore = defineStore('accounts', {
     state: () => ({
         accounts: [] as AccountRecord[],
@@ -41,28 +39,16 @@ export const useAccountStore = defineStore('accounts', {
         saveToStorage() {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(this.accounts));
         },
-        addAccount() {
-            this.accounts.push({
-                id: createId(),
-                labels: [],
-                type: 'LOCAL',
-                login: '',
-                password: '',
-            });
+        upsertAccount(account: AccountRecord) {
+            const index = this.accounts.findIndex((item) => item.id === account.id);
+            if (index === -1) {
+                this.accounts.push(account);
+                return;
+            }
+            this.accounts[index] = account;
         },
         removeAccount(id: string) {
             this.accounts = this.accounts.filter((account) => account.id !== id);
-        },
-        updateAccount(id: string, updates: Partial<AccountRecord>) {
-            const index = this.accounts.findIndex((account) => account.id === id);
-            if (index === -1) {
-                return;
-            }
-
-            this.accounts[index] = {
-                ...this.accounts[index],
-                ...updates,
-            };
         },
     },
 });

@@ -22,51 +22,48 @@
                 <span></span>
             </div>
 
-            <div v-if="accounts.length === 0" class="empty-state">Добавьте учетную запись</div>
+            <div v-if="rows.length === 0" class="empty-state">Добавьте учетную запись</div>
 
-            <div v-for="account in accounts" :key="account.id" class="account-row">
-                <div class="field" :class="errorClass(account.id, 'labels')">
-                    <el-input v-model="labelInputs[account.id]" placeholder="Метки" maxlength="50" show-word-limit
-                        @blur="() => handleLabelBlur(account.id)" />
-                    <span v-if="errors[account.id]?.labels" class="error-text">{{ errors[account.id]?.labels }}</span>
+            <div v-for="row in rows" :key="row.id" class="account-row">
+                <div class="field" :class="errorClass(row.id, 'labels')">
+                    <el-input v-model="row.labelInput" placeholder="Метки" maxlength="50" show-word-limit
+                        @blur="() => handleCommit(row.id)" />
+                    <span v-if="errors[row.id]?.labels" class="error-text">{{ errors[row.id]?.labels }}</span>
                 </div>
 
-                <div class="field" :class="errorClass(account.id, 'type')">
-                    <el-select v-model="typeInputs[account.id]" placeholder="Выберите"
-                        @change="(value: AccountType) => handleTypeChange(account.id, value)">
+                <div class="field" :class="errorClass(row.id, 'type')">
+                    <el-select v-model="row.type" placeholder="Выберите" @change="() => handleCommit(row.id, true)">
                         <el-option label="LDAP" value="LDAP" />
                         <el-option label="Локальная" value="LOCAL" />
                     </el-select>
-                    <span v-if="errors[account.id]?.type" class="error-text">{{ errors[account.id]?.type }}</span>
+                    <span v-if="errors[row.id]?.type" class="error-text">{{ errors[row.id]?.type }}</span>
                 </div>
 
-                <div class="field" :class="errorClass(account.id, 'login')">
-                    <el-input v-model="loginInputs[account.id]" placeholder="Логин" maxlength="100" show-word-limit
-                        @blur="() => handleLoginBlur(account.id)" />
-                    <span v-if="errors[account.id]?.login" class="error-text">{{ errors[account.id]?.login }}</span>
+                <div class="field" :class="errorClass(row.id, 'login')">
+                    <el-input v-model="row.login" placeholder="Логин" maxlength="100" show-word-limit
+                        @blur="() => handleCommit(row.id)" />
+                    <span v-if="errors[row.id]?.login" class="error-text">{{ errors[row.id]?.login }}</span>
                 </div>
 
-                <div class="field" :class="errorClass(account.id, 'password')">
-                    <template v-if="typeInputs[account.id] === 'LOCAL'">
-                        <el-input v-model="passwordInputs[account.id]" placeholder="Пароль" maxlength="100"
-                            show-word-limit show-password @blur="() => handlePasswordBlur(account.id)" />
-                        <span v-if="errors[account.id]?.password" class="error-text">{{ errors[account.id]?.password
-                            }}</span>
+                <div class="field" :class="errorClass(row.id, 'password')">
+                    <template v-if="row.type === 'LOCAL'">
+                        <el-input v-model="row.password" placeholder="Пароль" maxlength="100" show-word-limit
+                            show-password @blur="() => handleCommit(row.id)" />
+                        <span v-if="errors[row.id]?.password" class="error-text">{{ errors[row.id]?.password }}</span>
                     </template>
                     <template v-else>
-                        <span class="error-text" v-if="errors[account.id]?.password">{{ errors[account.id]?.password
-                            }}</span>
+                        <span class="error-text" v-if="errors[row.id]?.password">{{ errors[row.id]?.password }}</span>
                     </template>
                 </div>
 
-                <button class="delete-button" type="button" @click="handleRemove(account.id)">🗑️</button>
+                <button class="delete-button" type="button" @click="handleRemove(row.id)">🗑️</button>
             </div>
         </section>
     </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, watch } from 'vue';
+import { onMounted, reactive, ref } from 'vue';
 import { useAccountStore, type AccountRecord, type AccountType, type LabelToken } from './store/accounts';
 
 interface FieldErrors {
@@ -76,32 +73,19 @@ interface FieldErrors {
     password?: string;
 }
 
-const store = useAccountStore();
-const accounts = computed(() => store.accounts);
+interface AccountDraft {
+    id: string;
+    labelInput: string;
+    type: AccountType;
+    login: string;
+    password: string;
+}
 
-const labelInputs = reactive<Record<string, string>>({});
-const loginInputs = reactive<Record<string, string>>({});
-const passwordInputs = reactive<Record<string, string>>({});
-const typeInputs = reactive<Record<string, AccountType>>({});
+const store = useAccountStore();
+const rows = ref<AccountDraft[]>([]);
 const errors = reactive<Record<string, FieldErrors>>({});
 
-const ensureLocalState = (account: AccountRecord) => {
-    if (!(account.id in labelInputs)) {
-        labelInputs[account.id] = labelsToString(account.labels);
-    }
-    if (!(account.id in loginInputs)) {
-        loginInputs[account.id] = account.login;
-    }
-    if (!(account.id in passwordInputs)) {
-        passwordInputs[account.id] = account.password ?? '';
-    }
-    if (!(account.id in typeInputs)) {
-        typeInputs[account.id] = account.type;
-    }
-    if (!(account.id in errors)) {
-        errors[account.id] = {};
-    }
-};
+const createId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const labelsToString = (labels: LabelToken[]) => labels.map((label) => label.text).join('; ');
 
@@ -153,80 +137,84 @@ const setError = (id: string, field: keyof FieldErrors, message: string) => {
     errors[id] = { ...errors[id], [field]: message || undefined };
 };
 
-const errorClass = (id: string, field: keyof FieldErrors) => {
-    return errors[id]?.[field] ? 'error-border' : '';
+const errorClass = (id: string, field: keyof FieldErrors) => (errors[id]?.[field] ? 'error-border' : '');
+
+const createDraftFromAccount = (account: AccountRecord): AccountDraft => ({
+    id: account.id,
+    labelInput: labelsToString(account.labels),
+    type: account.type,
+    login: account.login,
+    password: account.password ?? '',
+});
+
+const ensureErrors = (id: string) => {
+    if (!(id in errors)) {
+        errors[id] = {};
+    }
 };
 
 const handleAdd = () => {
-    store.addAccount();
+    const newDraft: AccountDraft = {
+        id: createId(),
+        labelInput: '',
+        type: 'LOCAL',
+        login: '',
+        password: '',
+    };
+    rows.value.push(newDraft);
+    ensureErrors(newDraft.id);
 };
 
 const handleRemove = (id: string) => {
+    rows.value = rows.value.filter((row) => row.id !== id);
     store.removeAccount(id);
-    delete labelInputs[id];
-    delete loginInputs[id];
-    delete passwordInputs[id];
-    delete typeInputs[id];
     delete errors[id];
 };
 
-const handleLabelBlur = (id: string) => {
-    const value = labelInputs[id] ?? '';
-    const error = validateLabels(value);
-    setError(id, 'labels', error);
-    if (error) {
-        return;
-    }
-    store.updateAccount(id, { labels: parseLabels(value) });
+const validateRow = (row: AccountDraft) => {
+    const labelError = validateLabels(row.labelInput);
+    const typeError = validateType(row.type);
+    const loginError = validateLogin(row.login);
+    const passwordError = validatePassword(row.password, row.type);
+
+    setError(row.id, 'labels', labelError);
+    setError(row.id, 'type', typeError);
+    setError(row.id, 'login', loginError);
+    setError(row.id, 'password', passwordError);
+
+    return !labelError && !typeError && !loginError && !passwordError;
 };
 
-const handleLoginBlur = (id: string) => {
-    const value = loginInputs[id] ?? '';
-    const error = validateLogin(value);
-    setError(id, 'login', error);
-    if (error) {
+const handleCommit = (id: string, isTypeChange = false) => {
+    const row = rows.value.find((item) => item.id === id);
+    if (!row) {
         return;
     }
-    store.updateAccount(id, { login: value.trim() });
-};
 
-const handlePasswordBlur = (id: string) => {
-    const value = passwordInputs[id] ?? '';
-    const type = typeInputs[id];
-    const error = validatePassword(value, type);
-    setError(id, 'password', error);
-    if (error) {
-        return;
+    if (isTypeChange && row.type === 'LDAP') {
+        row.password = '';
     }
-    store.updateAccount(id, { password: type === 'LDAP' ? null : value });
-};
 
-const handleTypeChange = (id: string, value: AccountType) => {
-    const error = validateType(value);
-    setError(id, 'type', error);
-    if (error) {
+    const isValid = validateRow(row);
+    if (!isValid) {
         return;
     }
-    typeInputs[id] = value;
-    if (value === 'LDAP') {
-        passwordInputs[id] = '';
-        setError(id, 'password', '');
-        store.updateAccount(id, { type: value, password: null });
-        return;
-    }
-    store.updateAccount(id, { type: value, password: passwordInputs[id] ?? '' });
-};
 
-watch(
-    accounts,
-    (newAccounts) => {
-        newAccounts.forEach((account) => ensureLocalState(account));
-    },
-    { immediate: true }
-);
+    const record: AccountRecord = {
+        id: row.id,
+        labels: parseLabels(row.labelInput),
+        type: row.type,
+        login: row.login.trim(),
+        password: row.type === 'LDAP' ? null : row.password,
+    };
+
+    store.upsertAccount(record);
+};
 
 onMounted(() => {
     store.loadFromStorage();
+    rows.value = store.accounts.map((account) => createDraftFromAccount(account));
+    rows.value.forEach((row) => ensureErrors(row.id));
     store.$subscribe(() => {
         store.saveToStorage();
     });
